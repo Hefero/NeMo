@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
+
+
 import json
 import os
-import threading
-from functools import partial
+
 
 import torch
 from constants import TASKS
@@ -48,10 +48,10 @@ except (ImportError, ModuleNotFoundError):
 This is the script to Zero-Scrolls evaluation with base GPT models (FA is enabled).
 
 Supported tasks:
-    'book_sum_sort' 'gov_report' 'narrative_qa' 'qasper' 'qmsum' 'summ_screen_fd' 'quality' 'squality' 'musique' 'space_digest' 
+    ['book_sum_sort', 'gov_report', 'narrative_qa', 'qasper', 'qmsum', 'summ_screen_fd', 'quality', 'squality', 'musique', 'space_digest']
 
-See NeMo/examples/nlp/language_modeling/constants.py for the exact subset used for each task. We use "test" if labeled data is available, otherwise "validation".
-DATA_DIR - is the path to the folder with subsets for all scrolls tasks.
+See NeMo/examples/nlp/language_modeling/constants.py for the exact subset used for each task. We use 'test' if labeled data is available, otherwise 'validation'.
+`DATA_DIR` - is the path to the folder with subsets for all scrolls tasks.
 
 Usage:
     python ${NEMO_DIR}/examples/nlp/language_modeling/megatron_gpt_eval_zero_scrolls.py \
@@ -66,16 +66,14 @@ Usage:
         inference.task=${TASK} \
         inference.data_dir=${DATA_DIR} \
         inference.batch_size=1 \
-        inference.greedy=True \
-        inference.add_BOS=False \
-        inference.max_seq_length=${MAX_SEQ_LENGTH} 
+        inference.max_seq_length=${MAX_SEQ_LENGTH}
 
-The output of this script is a jsonl file with original fields and the generated output stored at "pred" field.
+The output of this script is a jsonl file with original fields and the generated output stored at 'pred' field.
 
 To evaluate the generated predictions, run (https://gitlab-master.nvidia.com/yangzhang/llm_long_context):
     python llm_long_context/gpt_zero-shot/zero_scrolls/metrics_zero_scrolls.py \
         --predictions_file=${PREDICTIONS}.jsonl \
-        --task=${TASK} 
+        --task=${TASK}
 """
 
 if not torch.cuda.is_available():
@@ -159,14 +157,20 @@ def main(cfg) -> None:
             pretrained_cfg.precision = trainer.precision
             if trainer.precision == "16":
                 pretrained_cfg.megatron_amp_O2 = False
-            try:
-                pretrained_cfg.use_flash_attention = True
-            except:
-                pretrained_cfg["use_flash_attention"] = True
 
-            # if cfg.inference.max_seq_length is not None:
-            #     pretrained_cfg.encoder_seq_length = cfg.inference.max_seq_length
-            #     pretrained_cfg.max_position_embeddings = cfg.inference.max_seq_length
+            if cfg.inference.get("use_flash_attention", None) is not None:
+                try:
+                    pretrained_cfg.use_flash_attention = cfg.inference.use_flash_attention
+                except:
+                    pretrained_cfg["use_flash_attention"] = cfg.inference.use_flash_attention
+
+            if cfg.inference.get("apply_query_key_layer_scaling", None) is not None:
+                pretrained_cfg.apply_query_key_layer_scaling = cfg.inference.apply_query_key_layer_scaling
+
+            if cfg.get("model", None) is not None and cfg.model.get("encoder", None) is not None:
+                for k, v in cfg.model.encoder.items():
+                    pretrained_cfg[k] = v
+
 
             pretrained_cfg.apply_query_key_layer_scaling = False
         model = MegatronGPTModel.restore_from(
@@ -210,38 +214,20 @@ def main(cfg) -> None:
     except AttributeError:
         pass
 
-    length_params: LengthParam = {
-        "max_length": cfg.inference.task,
-        "min_length": cfg.inference.min_tokens_to_generate,
-    }
-
-    sampling_params: SamplingParam = {
-        "use_greedy": cfg.inference.greedy,
-        "temperature": cfg.inference.temperature,
-        "top_k": cfg.inference.top_k,
-        "top_p": cfg.inference.top_p,
-        "repetition_penalty": cfg.inference.repetition_penalty,
-        "add_BOS": cfg.inference.add_BOS,
-        "all_probs": cfg.inference.all_probs,
-        "compute_logprob": cfg.inference.compute_logprob,
-        "end_strings": cfg.inference.end_strings,
-    }
-
     fp8_enabled = hasattr(model.cfg, "fp8") and (model.cfg.fp8 == True)
     if fp8_enabled:
         nb_paddings = 0
-        while len(cfg.prompts) % 8 != 0:
-            cfg.prompts.append("")
-            nb_paddings += 1
 
     print("Processing data...")
     original_lines, truncated_input = process_data(
         model.tokenizer,
-        prompt=None,
+        prompt=cfg.chatbot_config.prompt if cfg.chat else None,
         task=cfg.inference.task,
         max_seq_length=cfg.inference.max_seq_length,
         data_dir=cfg.inference.data_dir,
         n_jobs=cfg.inference.n_jobs,
+        remove_newline_tab=cfg.inference.remove_newline_tab,
+
     )
 
     print("Running inference...")

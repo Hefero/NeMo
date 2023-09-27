@@ -68,17 +68,20 @@ class RotaryEmbedding(nn.Module):
         beta_slow: int = 1,
         use_yarn: bool = False,
     ):
+
         """
         Args:
 
             dim (int): rotary embedding dimension
             seq_len_interpolation_factor (int): if not None, discrete positions will be interpolated
             by this factor via the trick in https://arxiv.org/abs/2306.15595.
+            pretrained_max_position_embeddings (int): pre-trained max_position_embeddings before position interpolation.
         """
         super().__init__()
         self.use_yarn = use_yarn
         self.base = base
         self.seq_len_interpolation_factor = seq_len_interpolation_factor
+
         if self.use_yarn:
             self.seq_len_interpolation_factor = seq_len_interpolation_factor  # scale
             self.max_positional_embeddings = max_positional_embeddings
@@ -122,6 +125,7 @@ class RotaryEmbedding(nn.Module):
         global mscale
         mscale = self.mscale
 
+
     def forward(self, max_seq_len, offset=0):
         if self.use_yarn:
             if max_seq_len > self.max_seq_len_cached:
@@ -135,10 +139,17 @@ class RotaryEmbedding(nn.Module):
             return rearrange(self.emb, 'n d -> n 1 1 d')[:max_seq_len,:,:,:]
 
         seq = torch.arange(max_seq_len, device=self.inv_freq.device) + offset
-        if self.seq_len_interpolation_factor is not None:
-            seq = seq.type_as(self.inv_freq)
-            seq *= 1 / self.seq_len_interpolation_factor
-        freqs = einsum('i , j -> i j', seq.type_as(self.inv_freq), self.inv_freq)
+        seq = seq.type_as(self.inv_freq)
+        
+        if self.pretrained_max_position_embeddings is not None and self.seq_len_interpolation_factor is not None:
+            if max_seq_len > self.pretrained_max_position_embeddings * self.seq_len_interpolation_factor:
+                # dynamic linear scaling (length > position we have learned)
+                seq *= 1 / (max_seq_len / self.pretrained_max_position_embeddings)
+            else:
+                # fixed linear scaling
+                seq *= 1 / self.seq_len_interpolation_factor
+
+        freqs = einsum('i , j -> i j', seq, self.inv_freq)
         # first part even vector components, second part odd vector components,
         #  2 * dim in dimension size
         emb = torch.cat((freqs, freqs), dim=-1)

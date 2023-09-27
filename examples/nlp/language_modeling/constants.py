@@ -1,5 +1,4 @@
 TASKS = {
-
     'qasper': {
         'context': 'Article:',
         'response': 'Answer:',

@@ -13,7 +13,6 @@
 # limitations under the License.
 
 
-
 import json
 import os
 
@@ -171,7 +170,6 @@ def main(cfg) -> None:
                 for k, v in cfg.model.encoder.items():
                     pretrained_cfg[k] = v
 
-
             pretrained_cfg.apply_query_key_layer_scaling = False
         model = MegatronGPTModel.restore_from(
             restore_path=cfg.gpt_model_file,
@@ -227,7 +225,6 @@ def main(cfg) -> None:
         data_dir=cfg.inference.data_dir,
         n_jobs=cfg.inference.n_jobs,
         remove_newline_tab=cfg.inference.remove_newline_tab,
-
     )
 
     print("Running inference...")

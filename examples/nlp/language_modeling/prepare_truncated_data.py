@@ -112,7 +112,6 @@ def process_data(
         lines = [json.loads(line) for line in f_in]
 
     truncated_texts = Parallel(n_jobs)(
-
         delayed(_process_line)(
             line, task, tokenizer, max_seq_length, tokens_to_generate, prompt, remove_newline_tab=remove_newline_tab
         )
